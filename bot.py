@@ -23,7 +23,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Словарь для хранения выбранного языка пользователя (в памяти)
+# Хранилище выбранных языков для пользователей (в памяти)
 user_languages = {}
 
 LANGUAGES = {
@@ -91,19 +91,23 @@ async def cmd_start(message: types.Message):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery):
-    lang_key = callback.data
-    lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
+    try:
+        lang_key = callback.data
+        lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
-    # Запоминаем язык за конкретным пользователем
-    user_languages[callback.from_user.id] = lang_info
+        user_languages[callback.from_user.id] = lang_info
 
-    await callback.message.edit_text(
-        f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
-        f"Напиши или отправь мне **голосовое сообщение**:\n"
-        f"Какой у тебя текущий уровень (с нуля или уже есть база)?",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
+        await callback.message.edit_text(
+            f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
+            f"Напиши или отправь мне **голосовое сообщение**:\n"
+            f"Какой у тебя текущий уровень (с нуля или уже есть база)?",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Error in callback query: {e}")
+    finally:
+        # Гарантированно снимаем анимацию загрузки с кнопки
+        await callback.answer()
 
 @dp.message(F.text)
 async def chat_with_tutor_text(message: types.Message):
