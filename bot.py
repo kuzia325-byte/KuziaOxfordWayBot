@@ -1,50 +1,192 @@
 import asyncio
 import logging
 import os
+from io import BytesIO
+
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
+from google.genai import types as genai_types
 from aiohttp import web
+from gtts import gTTS
 
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Получаем внешний URL от Render или используем заглушку
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
 
 bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-TUTOR_PROMPT = """
-You are a highly skilled, patient, and adaptive English language tutor capable of teaching students from complete beginners (A0/A1) to advanced fluent speakers (C1/C2).
+# Определение состояний (FSM)
+class TutorState(StatesGroup):
+    choosing_language = State()
+    learning = State()
 
-Core goals: adapt to the user's level, encourage conversation, explain grammar clearly, and gently correct mistakes in a bilingual (Russian/English) approach.
+# Список 10 языков из твоего запроса
+LANGUAGES = {
+    "lang_en": {"name": "1. Английский 🇬🇧", "code": "en", "prompt_lang": "English"},
+    "lang_es": {"name": "2. Испанский 🇪🇸", "code": "es", "prompt_lang": "Spanish"},
+    "lang_fr": {"name": "3. Французский 🇫🇷", "code": "fr", "prompt_lang": "French"},
+    "lang_de": {"name": "4. Немецкий 🇩🇪", "code": "de", "prompt_lang": "German"},
+    "lang_ja": {"name": "5. Японский 🇯🇵", "code": "ja", "prompt_lang": "Japanese"},
+    "lang_it": {"name": "6. Итальянский 🇮🇹", "code": "it", "prompt_lang": "Italian"},
+    "lang_ko": {"name": "7. Корейский 🇰🇷", "code": "ko", "prompt_lang": "Korean"},
+    "lang_zh": {"name": "8. Китайский 🇨🇳", "code": "zh-CN", "prompt_lang": "Chinese"},
+    "lang_ru": {"name": "9. Русский 🇷🇺", "code": "ru", "prompt_lang": "Russian"},
+    "lang_vi": {"name": "10. Вьетнамский 🇻🇳", "code": "vi", "prompt_lang": "Vietnamese"},
+}
+
+def get_tutor_prompt(target_language: str) -> str:
+    return f"""
+You are a highly skilled, patient, and adaptive language tutor teaching {target_language}.
+You teach students from complete beginners (A0/A1) to advanced fluent speakers.
+
+Core goals:
+- Adapt to the user's level.
+- Explain grammar clearly and gently correct mistakes using Russian for explanations when needed.
+- Encourage conversation in {target_language}.
+
+Audio & Speech Specific Instructions:
+- You will receive both text and voice/audio messages from students.
+- When processing voice messages, listen carefully to their pronunciation and grammar.
+- Keep your answers natural, supportive, and structured so they sound clear both in text and spoken aloud.
 """
 
+def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
+    # Озвучка текста с помощью gTTS
+    try:
+        tts = gTTS(text=text, lang=lang_code, slow=False)
+    except Exception:
+        # Если возникнет сбой с языковым кодом, переключаемся на универсальный английский
+        tts = gTTS(text=text, lang='en', slow=False)
+    
+    fp = BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return fp
+
+# Старт бота и выбор языка
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Английский 🇬🇧", callback_data="lang_en"),
+         InlineKeyboardButton(text="Испанский 🇪🇸", callback_data="lang_es")],
+        [InlineKeyboardButton(text="Французский 🇫🇷", callback_data="lang_fr"),
+         InlineKeyboardButton(text="Немецкий 🇩🇪", callback_data="lang_de")],
+        [InlineKeyboardButton(text="Японский 🇯🇵", callback_data="lang_ja"),
+         InlineKeyboardButton(text="Итальянский 🇮🇹", callback_data="lang_it")],
+        [InlineKeyboardButton(text="Корейский 🇰🇷", callback_data="lang_ko"),
+         InlineKeyboardButton(text="Китайский 🇨🇳", callback_data="lang_zh")],
+        [InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang_ru"),
+         InlineKeyboardButton(text="Вьетнамский 🇻🇳", callback_data="lang_vi")]
+    ])
+
+    await state.set_state(TutorState.choosing_language)
     await message.answer(
-        "Hello! 👋 Привет! Я твой личный репетитор по английскому языку.\n\n"
-        "Я помогу тебе выучить английский с самого нуля или прокачать разговорную речь и грамматику до совершенства!\n\n"
-        "Скажи, какой у тебя сейчас уровень английского, или мы начинаем с самого нуля?"
+        "Привет! 👋 Я твой личный ИИ-репетитор по иностранным языкам.\n\n"
+        "Я умею работать как с **текстом**, так и с **голосовыми сообщениями**! 🎙\n\n"
+        "Выбери язык, который ты хочешь изучать:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
     )
 
-@dp.message(F.text)
-async def chat_with_tutor(message: types.Message):
+# Обработка нажатия на кнопку выбора языка
+@dp.callback_query(TutorState.choosing_language, F.data.startswith("lang_"))
+async def process_language_choice(callback: types.CallbackQuery, state: FSMContext):
+    lang_key = callback.data
+    lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
+
+    # Сохраняем выбранный язык в состояние пользователя
+    await state.update_data(
+        target_language=lang_info["prompt_lang"],
+        lang_code=lang_info["code"],
+        lang_name=lang_info["name"]
+    )
+    await state.set_state(TutorState.learning)
+
+    await callback.message.edit_text(
+        f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
+        f"Напиши или отправь мне **голосовое сообщение**:\n"
+        f"Какой у тебя текущий уровень (с нуля или уже есть база)?",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+# Обработка текстовых сообщений
+@dp.message(TutorState.learning, F.text)
+async def chat_with_tutor_text(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    target_language = data.get("target_language", "English")
+    prompt = get_tutor_prompt(target_language)
+
     try:
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=message.text,
-            config={"system_instruction": TUTOR_PROMPT}
+            config={"system_instruction": prompt}
         )
         await message.answer(response.text)
     except Exception as e:
         logging.error(f"Error calling Gemini: {e}")
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
+
+# Обработка голосовых сообщений
+@dp.message(TutorState.learning, F.voice)
+async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    target_language = data.get("target_language", "English")
+    lang_code = data.get("lang_code", "en")
+    prompt = get_tutor_prompt(target_language)
+
+    try:
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
+
+        # 1. Скачиваем голосовое сообщение из Telegram
+        file_id = message.voice.file_id
+        file_info = await bot.get_file(file_id)
+        file_bytes = await bot.download_file(file_info.file_path)
+        audio_data = file_bytes.read()
+
+        # 2. Отправляем аудио в Gemini для распознавания и ответа
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                genai_types.Part.from_bytes(
+                    data=audio_data,
+                    mime_type="audio/ogg"
+                ),
+                f"Ответь пользователю как репетитор по языку ({target_language})."
+            ],
+            config={"system_instruction": prompt}
+        )
+
+        reply_text = response.text
+
+        # 3. Отправляем текстовый ответ
+        await message.answer(reply_text)
+
+        # 4. Превращаем ответ в голосовое сообщение и отправляем пользователю
+        voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
+        voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
+        await message.answer_voice(voice=voice_file)
+
+    except Exception as e:
+        logging.error(f"Error handling voice message: {e}")
+        await message.answer("Не удалось распознать или озвучить голосовое сообщение. Попробуй еще раз!")
+
+# Подсказка, если пользователь пишет до выбора языка
+@dp.message(TutorState.choosing_language)
+async def please_choose_lang(message: types.Message):
+    await message.answer("Пожалуйста, выберите язык из меню кнопок выше 👆")
 
 async def on_startup(bot: Bot):
     if RENDER_EXTERNAL_URL:
@@ -53,18 +195,16 @@ async def on_startup(bot: Bot):
     else:
         logging.warning("RENDER_EXTERNAL_URL is not set. Webhook might not work correctly.")
 
-# Обработчик для пингов (чтобы сервер не засыпал)
+# Эндпоинт для пингов от cron-job.org
 async def index(request):
-    return web.Response(text="OxfordWayBot is running!")
+    return web.Response(text="Multilingual Tutor Bot is running!")
 
 def main():
     logging.basicConfig(level=logging.INFO)
     app = web.Application()
     
-    # Регистрируем корневой URL для пингов крона
     app.router.add_get("/", index)
 
-    # Регистрируем обработчик вебхуков для aiogram
     webhook_requests_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
