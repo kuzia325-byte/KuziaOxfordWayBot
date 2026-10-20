@@ -23,7 +23,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Хранилище выбранных языков для пользователей (в памяти)
+# Хранилище выбранных языков пользователей
 user_languages = {}
 
 LANGUAGES = {
@@ -66,6 +66,16 @@ def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
     fp.seek(0)
     return fp
 
+async def send_voice_response(chat_id: int, text: str, lang_code: str):
+    """Фоновая задача для синтеза и отправки голосового ответа."""
+    try:
+        await bot.send_chat_action(chat_id=chat_id, action="record_voice")
+        voice_fp = await asyncio.to_thread(text_to_speech_bytes, text, lang_code)
+        voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
+        await bot.send_voice(chat_id=chat_id, voice=voice_file)
+    except Exception as e:
+        logging.error(f"Error generating/sending voice: {e}")
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -91,6 +101,9 @@ async def cmd_start(message: types.Message):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery):
+    # МГНОВЕННЫЙ отклик интерфейса Telegram (первой строчкой)
+    await callback.answer()
+
     try:
         lang_key = callback.data
         lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
@@ -105,9 +118,6 @@ async def process_language_choice(callback: types.CallbackQuery):
         )
     except Exception as e:
         logging.error(f"Error in callback query: {e}")
-    finally:
-        # Гарантированно снимаем анимацию загрузки с кнопки
-        await callback.answer()
 
 @dp.message(F.text)
 async def chat_with_tutor_text(message: types.Message):
@@ -117,6 +127,7 @@ async def chat_with_tutor_text(message: types.Message):
     prompt = get_tutor_prompt(lang_info["prompt_lang"])
 
     try:
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=message.text,
@@ -137,13 +148,15 @@ async def chat_with_tutor_voice(message: types.Message):
     prompt = get_tutor_prompt(target_language)
 
     try:
-        await message.bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
+        # 1. Скачивание аудио
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file_info.file_path)
         audio_data = file_bytes.read()
 
+        # 2. Запрос в Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -158,15 +171,15 @@ async def chat_with_tutor_voice(message: types.Message):
 
         reply_text = response.text
 
+        # 3. Текстовый ответ отправляем СРАЗУ
         await message.answer(reply_text)
 
-        voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
-        voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
-        await message.answer_voice(voice=voice_file)
+        # 4. Синтез речи и отправка голоса выполняются в фоновом режиме (не блокируют бота)
+        asyncio.create_task(send_voice_response(message.chat.id, reply_text, lang_code))
 
     except Exception as e:
         logging.error(f"Error handling voice message: {e}")
-        await message.answer("Не удалось распознать или озвучить голосовое сообщение. Попробуй еще раз!")
+        await message.answer("Не удалось распознать голосовое сообщение. Попробуй еще раз!")
 
 async def on_startup(bot: Bot):
     if RENDER_EXTERNAL_URL:
