@@ -57,8 +57,9 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def chat_with_tutor(message: types.Message):
     try:
+        # Используем актуальную модель gemini-3.8-flash
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=message.text,
             config={
                 "system_instruction": TUTOR_PROMPT
@@ -76,7 +77,6 @@ async def handle_ping(request):
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # Запускаем aiohttp сервер заранее, чтобы Render сразу увидел открытый порт
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
@@ -87,7 +87,6 @@ async def main():
     await site.start()
     logging.info(f"Web server started on port {port}")
 
-    # Запускаем поллинг телеграм-бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
