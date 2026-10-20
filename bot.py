@@ -6,24 +6,17 @@ from io import BytesIO
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
 from google.genai import types as genai_types
-from aiohttp import web
 from gtts import gTTS
 
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
-WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
-WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
-
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Хранилище выбранных языков пользователей
 user_languages = {}
 
 LANGUAGES = {
@@ -67,7 +60,6 @@ def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
     return fp
 
 async def send_voice_response(chat_id: int, text: str, lang_code: str):
-    """Фоновая задача для синтеза и отправки голосового ответа."""
     try:
         await bot.send_chat_action(chat_id=chat_id, action="record_voice")
         voice_fp = await asyncio.to_thread(text_to_speech_bytes, text, lang_code)
@@ -238,33 +230,11 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось распознать голосовое сообщение. Попробуй еще раз!")
 
-async def on_startup(bot: Bot):
-    if RENDER_EXTERNAL_URL:
-        await bot.set_webhook(WEBHOOK_URL)
-        logging.info(f"Webhook set to {WEBHOOK_URL}")
-    else:
-        logging.warning("RENDER_EXTERNAL_URL is not set. Webhook might not work correctly.")
-
-async def index(request):
-    return web.Response(text="Multilingual Tutor Bot is running!")
-
-def main():
+async def main():
     logging.basicConfig(level=logging.INFO)
-    app = web.Application()
-    
-    app.router.add_get("/", index)
-
-    webhook_requests_handler = SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-    )
-    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
-
-    dp.startup.register(on_startup)
-
-    port = int(os.environ.get("PORT", 10000))
-    web.run_app(app, host="0.0.0.0", port=port)
+    # Удаляем вебхук перед запуском polling, чтобы старые запросы не висели
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
