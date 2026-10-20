@@ -1,3 +1,5 @@
 aiogram
 google-genai
 aiohttp
+gTTS
+aiofiles
