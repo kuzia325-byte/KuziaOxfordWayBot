@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
+from aiohttp import web
 
 TELEGRAM_TOKEN = "8686547051:AAE8d6U2APr61gWrH46QUlE8Nlk2mBcz1Jg"
 OPENAI_API_KEY = "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"
@@ -36,8 +38,22 @@ async def chat_with_tutor(message: types.Message):
     )
     await message.answer(response.choices[0].message.content)
 
+# Простой веб-сервер, чтобы Render видел открытый порт
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 async def main():
     logging.basicConfig(level=logging.INFO)
+    await start_web_server()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
