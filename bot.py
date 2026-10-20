@@ -28,7 +28,6 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Определение состояний (FSM)
 class TutorState(StatesGroup):
-    choosing_language = State()
     learning = State()
 
 # Список 10 языков
@@ -75,6 +74,8 @@ def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
 # Старт бота и выбор языка
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()  # Сбрасываем старые состояния
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Английский 🇬🇧", callback_data="lang_en"),
          InlineKeyboardButton(text="Испанский 🇪🇸", callback_data="lang_es")],
@@ -88,7 +89,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
          InlineKeyboardButton(text="Вьетнамский 🇻🇳", callback_data="lang_vi")]
     ])
 
-    await state.set_state(TutorState.choosing_language)
     await message.answer(
         "Привет! 👋 Я твой личный Репетитор по иностранным языкам.\n\n"
         "Я умею работать как с **текстом**, так и с **голосовыми сообщениями**! 🎙\n\n"
@@ -97,12 +97,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# Обработка нажатия на кнопку выбора языка (работает независимо от текущего состояния)
+# Обработка нажатия на любую кнопку языка
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery, state: FSMContext):
     lang_key = callback.data
     lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
+    # Сохраняем язык и переводим пользователя в состояние обучения
     await state.update_data(
         target_language=lang_info["prompt_lang"],
         lang_code=lang_info["code"],
@@ -119,9 +120,15 @@ async def process_language_choice(callback: types.CallbackQuery, state: FSMConte
     await callback.answer()
 
 # Обработка текстовых сообщений
-@dp.message(TutorState.learning, F.text)
+@dp.message(F.text)
 async def chat_with_tutor_text(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    
+    # Если язык еще не выбран, просим выбрать
+    if not data.get("target_language"):
+        await message.answer("Пожалуйста, сначала отправьте /start и выберите язык из кнопок!")
+        return
+
     target_language = data.get("target_language", "English")
     prompt = get_tutor_prompt(target_language)
 
@@ -137,9 +144,14 @@ async def chat_with_tutor_text(message: types.Message, state: FSMContext):
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
 
 # Обработка голосовых сообщений
-@dp.message(TutorState.learning, F.voice)
+@dp.message(F.voice)
 async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    
+    if not data.get("target_language"):
+        await message.answer("Пожалуйста, сначала отправьте /start и выберите язык из кнопок!")
+        return
+
     target_language = data.get("target_language", "English")
     lang_code = data.get("lang_code", "en")
     prompt = get_tutor_prompt(target_language)
@@ -147,13 +159,13 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
     try:
         await message.bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
 
-        # 1. Скачиваем аудио из Telegram
+        # 1. Скачиваем аудио
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file_info.file_path)
         audio_data = file_bytes.read()
 
-        # 2. Отправляем аудио в Gemini
+        # 2. Отправляем в Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -168,10 +180,10 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
 
         reply_text = response.text
 
-        # 3. Отправляем текстовый ответ
+        # 3. Отправляем текст
         await message.answer(reply_text)
 
-        # 4. Превращаем ответ в голосовое сообщение и отправляем
+        # 4. Превращаем ответ в голосовое и отправляем
         voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
         voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
         await message.answer_voice(voice=voice_file)
@@ -179,11 +191,6 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось распознать или озвучить голосовое сообщение. Попробуй еще раз!")
-
-# Если пользователь пишет текст до выбора языка
-@dp.message(TutorState.choosing_language)
-async def please_choose_lang(message: types.Message):
-    await message.answer("Пожалуйста, выберите язык из кнопок выше 👆")
 
 async def on_startup(bot: Bot):
     if RENDER_EXTERNAL_URL:
