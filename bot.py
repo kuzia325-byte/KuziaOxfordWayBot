@@ -4,7 +4,7 @@ import os
 from io import BytesIO
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
@@ -76,9 +76,8 @@ async def send_voice_response(chat_id: int, text: str, lang_code: str):
     except Exception as e:
         logging.error(f"Error generating/sending voice: {e}")
 
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+def get_languages_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Английский 🇬🇧", callback_data="lang_en"),
          InlineKeyboardButton(text="Испанский 🇪🇸", callback_data="lang_es")],
         [InlineKeyboardButton(text="Французский 🇫🇷", callback_data="lang_fr"),
@@ -91,31 +90,91 @@ async def cmd_start(message: types.Message):
          InlineKeyboardButton(text="Вьетнамский 🇻🇳", callback_data="lang_vi")]
     ])
 
+def get_action_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💡 Объясни проще", callback_data="act_simpler"),
+         InlineKeyboardButton(text="🔄 Переведи на русский", callback_data="act_translate")],
+        [InlineKeyboardButton(text="⚙️ Сменить язык", callback_data="act_settings")]
+    ])
+
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message):
     await message.answer(
         "Привет! 👋 Я твой личный ИИ-репетитор по иностранным языкам.\n\n"
         "Я умею работать как с **текстом**, так и с **голосовыми сообщениями**! 🎙\n\n"
         "Выбери язык, который ты хочешь изучать:",
-        reply_markup=keyboard,
+        reply_markup=get_languages_keyboard(),
         parse_mode="Markdown"
     )
 
+@dp.message(Command("settings"))
+async def cmd_settings(message: types.Message):
+    await message.answer(
+        "Выбери язык, на который хочешь переключиться:",
+        reply_markup=get_languages_keyboard()
+    )
+
+@dp.callback_query(F.data == "act_settings")
+async def callback_settings(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(
+        "Выбери язык, на который хочешь переключиться:",
+        reply_markup=get_languages_keyboard()
+    )
+
+@dp.callback_query(F.data == "act_simpler")
+async def callback_simpler(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    lang_info = user_languages.get(user_id, {"prompt_lang": "English", "code": "en", "name": "Английский"})
+    
+    prompt = get_tutor_prompt(lang_info["prompt_lang"])
+    try:
+        await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Explain the previous rule or concept much simpler, using more Russian explanations and easy examples.",
+            config={"system_instruction": prompt}
+        )
+        await callback.message.answer(response.text, reply_markup=get_action_keyboard())
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        await callback.message.answer("Не удалось получить ответ. Попробуй еще раз.")
+
+@dp.callback_query(F.data == "act_translate")
+async def callback_translate(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    lang_info = user_languages.get(user_id, {"prompt_lang": "English", "code": "en", "name": "Английский"})
+    
+    prompt = get_tutor_prompt(lang_info["prompt_lang"])
+    try:
+        await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Translate your last message or explanation into Russian completely so I can understand it clearly.",
+            config={"system_instruction": prompt}
+        )
+        await callback.message.answer(response.text, reply_markup=get_action_keyboard())
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        await callback.message.answer("Не удалось получить перевод.")
+
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery):
-    # Мгновенно убираем анимацию загрузки с кнопки
     await callback.answer()
 
     try:
         lang_key = callback.data
         lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
-        # Сохраняем выбор пользователя
         user_languages[callback.from_user.id] = lang_info
 
-        # Отправляем НОВОЕ сообщение, чтобы интерфейс гарантированно разблокировался
         await callback.message.answer(
             f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
             f"Напиши или отправь мне **голосовое сообщение**:\n"
             f"Какой у тебя текущий уровень (с нуля или уже есть база)?",
+            reply_markup=get_action_keyboard(),
             parse_mode="Markdown"
         )
     except Exception as e:
@@ -135,7 +194,7 @@ async def chat_with_tutor_text(message: types.Message):
             contents=message.text,
             config={"system_instruction": prompt}
         )
-        await message.answer(response.text)
+        await message.answer(response.text, reply_markup=get_action_keyboard())
     except Exception as e:
         logging.error(f"Error calling Gemini: {e}")
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
@@ -164,14 +223,14 @@ async def chat_with_tutor_voice(message: types.Message):
                     data=audio_data,
                     mime_type="audio/ogg"
                 ),
-                f"Ответь пользователю как репетитор по языку ({target_language})."
+                f"Сначала напиши ровно то, что услышал от пользователя в аудио, в формате: '🎤 Вы сказали: ...'. Затем ответь пользователю как репетитор по языку ({target_language})."
             ],
             config={"system_instruction": prompt}
         )
 
         reply_text = response.text
 
-        await message.answer(reply_text)
+        await message.answer(reply_text, reply_markup=get_action_keyboard())
 
         asyncio.create_task(send_voice_response(message.chat.id, reply_text, lang_code))
 
