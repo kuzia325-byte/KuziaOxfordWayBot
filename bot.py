@@ -57,7 +57,6 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def chat_with_tutor(message: types.Message):
     try:
-        # Передаем системную инструкцию и сообщение пользователя в актуальную модель Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=message.text,
@@ -70,22 +69,25 @@ async def chat_with_tutor(message: types.Message):
         logging.error(f"Error calling Gemini: {e}")
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
 
-# Веб-сервер для удержания порта Render
+# Простой веб-сервер для ответа Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
-async def start_web_server():
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    
+    # Запускаем aiohttp сервер заранее, чтобы Render сразу увидел открытый порт
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
+    
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    logging.info(f"Web server started on port {port}")
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    asyncio.create_task(start_web_server())
+    # Запускаем поллинг телеграм-бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
