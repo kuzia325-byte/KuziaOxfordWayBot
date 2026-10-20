@@ -101,16 +101,18 @@ async def cmd_start(message: types.Message):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery):
-    # МГНОВЕННЫЙ отклик интерфейса Telegram (первой строчкой)
+    # Мгновенно убираем анимацию загрузки с кнопки
     await callback.answer()
 
     try:
         lang_key = callback.data
         lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
+        # Сохраняем выбор пользователя
         user_languages[callback.from_user.id] = lang_info
 
-        await callback.message.edit_text(
+        # Отправляем НОВОЕ сообщение, чтобы интерфейс гарантированно разблокировался
+        await callback.message.answer(
             f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
             f"Напиши или отправь мне **голосовое сообщение**:\n"
             f"Какой у тебя текущий уровень (с нуля или уже есть база)?",
@@ -150,13 +152,11 @@ async def chat_with_tutor_voice(message: types.Message):
     try:
         await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-        # 1. Скачивание аудио
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file_info.file_path)
         audio_data = file_bytes.read()
 
-        # 2. Запрос в Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -171,10 +171,8 @@ async def chat_with_tutor_voice(message: types.Message):
 
         reply_text = response.text
 
-        # 3. Текстовый ответ отправляем СРАЗУ
         await message.answer(reply_text)
 
-        # 4. Синтез речи и отправка голоса выполняются в фоновом режиме (не блокируют бота)
         asyncio.create_task(send_voice_response(message.chat.id, reply_text, lang_code))
 
     except Exception as e:
