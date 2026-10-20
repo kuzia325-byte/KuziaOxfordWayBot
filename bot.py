@@ -6,6 +6,7 @@ from io import BytesIO
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
+from aiohttp import web
 from google import genai
 from google.genai import types as genai_types
 from gtts import gTTS
@@ -133,9 +134,7 @@ async def callback_translate(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery):
-    # Мгновенный ответ Telegram, чтобы кнопка сразу разблокировалась
     await callback.answer()
-
     try:
         lang_key = callback.data
         lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
@@ -194,7 +193,6 @@ async def chat_with_tutor_voice(message: types.Message):
         reply_text = response.text
         await message.answer(reply_text, reply_markup=get_action_keyboard())
 
-        # Отправка голосового ответа
         voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
         voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
         await message.answer_voice(voice=voice_file)
@@ -203,10 +201,24 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
+async def index(request):
+    return web.Response(text="Bot is running!")
+
 async def main():
     logging.basicConfig(level=logging.INFO)
-    # Полностью очищаем старые вебхуки, чтобы бот работал в чистом режиме Polling
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Запускаем фоновый веб-сервер для Render на порту 10000
+    app = web.Application()
+    app.router.add_get("/", index)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
+    # Запускаем опрос Telegram
     print("Bot started polling...")
     await dp.start_polling(bot)
 
