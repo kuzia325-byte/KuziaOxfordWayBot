@@ -31,7 +31,7 @@ class TutorState(StatesGroup):
     choosing_language = State()
     learning = State()
 
-# Список 10 языков из твоего запроса
+# Список 10 языков
 LANGUAGES = {
     "lang_en": {"name": "1. Английский 🇬🇧", "code": "en", "prompt_lang": "English"},
     "lang_es": {"name": "2. Испанский 🇪🇸", "code": "es", "prompt_lang": "Spanish"},
@@ -62,11 +62,9 @@ Audio & Speech Specific Instructions:
 """
 
 def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
-    # Озвучка текста с помощью gTTS
     try:
         tts = gTTS(text=text, lang=lang_code, slow=False)
     except Exception:
-        # Если возникнет сбой с языковым кодом, переключаемся на универсальный английский
         tts = gTTS(text=text, lang='en', slow=False)
     
     fp = BytesIO()
@@ -92,20 +90,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     await state.set_state(TutorState.choosing_language)
     await message.answer(
-        "Привет! 👋 Я твой личный ИИ-репетитор по иностранным языкам.\n\n"
+        "Привет! 👋 Я твой личный Репетитор по иностранным языкам.\n\n"
         "Я умею работать как с **текстом**, так и с **голосовыми сообщениями**! 🎙\n\n"
         "Выбери язык, который ты хочешь изучать:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
-# Обработка нажатия на кнопку выбора языка
-@dp.callback_query(TutorState.choosing_language, F.data.startswith("lang_"))
+# Обработка нажатия на кнопку выбора языка (работает независимо от текущего состояния)
+@dp.callback_query(F.data.startswith("lang_"))
 async def process_language_choice(callback: types.CallbackQuery, state: FSMContext):
     lang_key = callback.data
     lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
-    # Сохраняем выбранный язык в состояние пользователя
     await state.update_data(
         target_language=lang_info["prompt_lang"],
         lang_code=lang_info["code"],
@@ -150,13 +147,13 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
     try:
         await message.bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
 
-        # 1. Скачиваем голосовое сообщение из Telegram
+        # 1. Скачиваем аудио из Telegram
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file_info.file_path)
         audio_data = file_bytes.read()
 
-        # 2. Отправляем аудио в Gemini для распознавания и ответа
+        # 2. Отправляем аудио в Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -174,7 +171,7 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
         # 3. Отправляем текстовый ответ
         await message.answer(reply_text)
 
-        # 4. Превращаем ответ в голосовое сообщение и отправляем пользователю
+        # 4. Превращаем ответ в голосовое сообщение и отправляем
         voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
         voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
         await message.answer_voice(voice=voice_file)
@@ -183,10 +180,10 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось распознать или озвучить голосовое сообщение. Попробуй еще раз!")
 
-# Подсказка, если пользователь пишет до выбора языка
+# Если пользователь пишет текст до выбора языка
 @dp.message(TutorState.choosing_language)
 async def please_choose_lang(message: types.Message):
-    await message.answer("Пожалуйста, выберите язык из меню кнопок выше 👆")
+    await message.answer("Пожалуйста, выберите язык из кнопок выше 👆")
 
 async def on_startup(bot: Bot):
     if RENDER_EXTERNAL_URL:
@@ -195,7 +192,7 @@ async def on_startup(bot: Bot):
     else:
         logging.warning("RENDER_EXTERNAL_URL is not set. Webhook might not work correctly.")
 
-# Эндпоинт для пингов от cron-job.org
+# Эндпоинт для пинга от cron-job.org
 async def index(request):
     return web.Response(text="Multilingual Tutor Bot is running!")
 
