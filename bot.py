@@ -6,7 +6,8 @@ from aiogram.filters import CommandStart
 from google import genai
 from aiohttp import web
 
-TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN", "8686547051:AAHly6DvabJc7ijTw9H2IWdL9FETxK5lKpA")
+# Ваш новый токен встроен напрямую
+TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -57,7 +58,6 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def chat_with_tutor(message: types.Message):
     try:
-        # Используем актуальную модель gemini-3.8-flash
         response = ai_client.models.generate_content(
             model="gemini-3.8-flash",
             contents=message.text,
@@ -70,7 +70,6 @@ async def chat_with_tutor(message: types.Message):
         logging.error(f"Error calling Gemini: {e}")
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
 
-# Простой веб-сервер для ответа Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
