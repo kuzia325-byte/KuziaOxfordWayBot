@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from aiohttp import web
 
 TELEGRAM_TOKEN = "8686547051:AAHly6DvabJc7ijTw9H2IWdL9FETxK5lKpA"
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "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"
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
