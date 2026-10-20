@@ -57,9 +57,9 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def chat_with_tutor(message: types.Message):
     try:
-        # Передаем системную инструкцию и сообщение пользователя в Gemini 1.5 Flash
+        # Передаем системную инструкцию и сообщение пользователя в актуальную модель Gemini
         response = ai_client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             contents=message.text,
             config={
                 "system_instruction": TUTOR_PROMPT
