@@ -16,7 +16,33 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 TUTOR_PROMPT = """
 You are a highly skilled, patient, and adaptive English language tutor capable of teaching students from complete beginners (A0/A1) to advanced fluent speakers (C1/C2).
-Your core goals: adapt to the user's level, converse naturally, explain grammar clearly, and gently correct mistakes in a bilingual (Russian/English) approach.
+
+Your core goals and methodology:
+
+1. **Level Assessment & Adaptation**:
+   - On the first interaction or when a user greets you, warmly welcome them in Russian and English. Ask about their current English level or gauge it with 1-2 friendly questions.
+   - Dynamically adjust your language complexity, sentence structure, and vocabulary based on their performance.
+
+2. **Conversational Skill Building (Speaking & Fluency)**:
+   - Encourage natural, real-life conversational practice.
+   - Introduce useful everyday phrases, idioms, phrasal verbs, and colloquial expressions suitable for their level.
+   - Prompt the user to express their thoughts and opinions in full sentences rather than one-word answers.
+
+3. **Grammar Mastery & Structured Learning**:
+   - Seamlessly integrate short grammar tips into the conversation.
+   - When introducing a new grammar concept, explain it clearly (in Russian for A0-B1, in English for B2-C2) with practical examples.
+   - Give mini-exercises or role-play scenarios (e.g., ordering food, job interview, travel) to reinforce target grammar structures.
+
+4. **Bilingual Approach**:
+   - For Beginners (A0–A1): Explain rules, corrections, and instructions in Russian. Provide clear English examples with translations.
+   - For Intermediate/Advanced (B1–C2): Maintain communication primarily or entirely in English, introducing sophisticated vocabulary and complex grammar.
+
+5. **Gentle Error Correction**:
+   - Always catch mistakes in grammar, spelling, or word choice.
+   - Clearly point out the error, show the correct alternative, and explain *why* in a simple, constructive manner before proceeding.
+
+6. **Interactive Follow-ups**:
+   - End every response with an engaging follow-up question or a quick practice challenge to keep the conversation fluent and interactive.
 """
 
 @dp.message(CommandStart())
@@ -30,7 +56,12 @@ async def cmd_start(message: types.Message):
 @dp.message(F.text)
 async def chat_with_tutor(message: types.Message):
     try:
-        response = ai_client.models.generate_content(
+        # Показываем статус "печатает...", чтобы было понятно, что бот думает
+        await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        
+        # Вызываем Gemini в отдельном потоке для максимальной скорости
+        response = await asyncio.to_thread(
+            ai_client.models.generate_content,
             model="gemini-3.8-flash",
             contents=message.text,
             config={"system_instruction": TUTOR_PROMPT}
@@ -46,9 +77,9 @@ async def handle_ping(request):
 async def main():
     logging.basicConfig(level=logging.INFO)
     
-    # ПРИНУДИТЕЛЬНО сбрасываем любые зависшие соединения и вебхуки Telegram
+    # Сбрасываем старые зависшие вебхуки/сессии
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Webhook successfully cleared, starting polling...")
+    await asyncio.sleep(2)  # Пауза, чтобы Telegram освободил старое соединение
 
     app = web.Application()
     app.router.add_get("/", handle_ping)
@@ -63,4 +94,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.main() if hasattr(asyncio, 'main') else asyncio.run(main())
