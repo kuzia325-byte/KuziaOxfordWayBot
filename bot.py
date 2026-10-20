@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 from aiohttp import web
 
-TELEGRAM_TOKEN = "8686547051:AAE8d6U2APr61gWrH46QUlE8Nlk2mBcz1Jg"
+TELEGRAM_TOKEN = "8686547051:AAHfgvx3OPGXNCtpXX0JgHTae1lWF-A8Oz0"
 OPENAI_API_KEY = "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"
 
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -23,7 +23,7 @@ You are a friendly, patient English tutor.
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer(
-        "Hello! 👋 Я твой личный ИИ-репетитор английского языка.\n\n"
+        "Hello! 👋 Привет! Я твой личный Репетитор английского языка.\n\n"
         "Напиши мне что-нибудь на английском, и мы начнем общение!"
     )
 
@@ -38,7 +38,7 @@ async def chat_with_tutor(message: types.Message):
     )
     await message.answer(response.choices[0].message.content)
 
-# Простой веб-сервер, чтобы Render видел открытый порт
+# Простой веб-сервер для удержания порта на Render
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
