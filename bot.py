@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types as genai_types
 from gtts import gTTS
 
-TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
+TELEGRAM_TOKEN = "8686547051:AAFvnP8-V5kaFtKCP1ApXd3CNBz7v6Qu9mY"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 bot = Bot(token=TELEGRAM_TOKEN)
