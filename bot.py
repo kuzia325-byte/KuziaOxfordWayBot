@@ -5,9 +5,6 @@ from io import BytesIO
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
@@ -23,25 +20,23 @@ WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
 
 bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher()
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Определение состояний (FSM)
-class TutorState(StatesGroup):
-    learning = State()
+# Словарь для хранения выбранного языка пользователя (в памяти)
+user_languages = {}
 
-# Список 10 языков
 LANGUAGES = {
-    "lang_en": {"name": "1. Английский 🇬🇧", "code": "en", "prompt_lang": "English"},
-    "lang_es": {"name": "2. Испанский 🇪🇸", "code": "es", "prompt_lang": "Spanish"},
-    "lang_fr": {"name": "3. Французский 🇫🇷", "code": "fr", "prompt_lang": "French"},
-    "lang_de": {"name": "4. Немецкий 🇩🇪", "code": "de", "prompt_lang": "German"},
-    "lang_ja": {"name": "5. Японский 🇯🇵", "code": "ja", "prompt_lang": "Japanese"},
-    "lang_it": {"name": "6. Итальянский 🇮🇹", "code": "it", "prompt_lang": "Italian"},
-    "lang_ko": {"name": "7. Корейский 🇰🇷", "code": "ko", "prompt_lang": "Korean"},
-    "lang_zh": {"name": "8. Китайский 🇨🇳", "code": "zh-CN", "prompt_lang": "Chinese"},
-    "lang_ru": {"name": "9. Русский 🇷🇺", "code": "ru", "prompt_lang": "Russian"},
-    "lang_vi": {"name": "10. Вьетнамский 🇻🇳", "code": "vi", "prompt_lang": "Vietnamese"},
+    "lang_en": {"name": "Английский 🇬🇧", "code": "en", "prompt_lang": "English"},
+    "lang_es": {"name": "Испанский 🇪🇸", "code": "es", "prompt_lang": "Spanish"},
+    "lang_fr": {"name": "Французский 🇫🇷", "code": "fr", "prompt_lang": "French"},
+    "lang_de": {"name": "Немецкий 🇩🇪", "code": "de", "prompt_lang": "German"},
+    "lang_ja": {"name": "Японский 🇯🇵", "code": "ja", "prompt_lang": "Japanese"},
+    "lang_it": {"name": "Итальянский 🇮🇹", "code": "it", "prompt_lang": "Italian"},
+    "lang_ko": {"name": "Корейский 🇰🇷", "code": "ko", "prompt_lang": "Korean"},
+    "lang_zh": {"name": "Китайский 🇨🇳", "code": "zh-CN", "prompt_lang": "Chinese"},
+    "lang_ru": {"name": "Русский 🇷🇺", "code": "ru", "prompt_lang": "Russian"},
+    "lang_vi": {"name": "Вьетнамский 🇻🇳", "code": "vi", "prompt_lang": "Vietnamese"},
 }
 
 def get_tutor_prompt(target_language: str) -> str:
@@ -71,11 +66,8 @@ def text_to_speech_bytes(text: str, lang_code: str) -> BytesIO:
     fp.seek(0)
     return fp
 
-# Старт бота и выбор языка
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext):
-    await state.clear()  # Сбрасываем старые состояния
-    
+async def cmd_start(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Английский 🇬🇧", callback_data="lang_en"),
          InlineKeyboardButton(text="Испанский 🇪🇸", callback_data="lang_es")],
@@ -90,26 +82,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
     ])
 
     await message.answer(
-        "Привет! 👋 Я твой личный Репетитор по иностранным языкам.\n\n"
+        "Привет! 👋 Я твой личный ИИ-репетитор по иностранным языкам.\n\n"
         "Я умею работать как с **текстом**, так и с **голосовыми сообщениями**! 🎙\n\n"
         "Выбери язык, который ты хочешь изучать:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
-# Обработка нажатия на любую кнопку языка
 @dp.callback_query(F.data.startswith("lang_"))
-async def process_language_choice(callback: types.CallbackQuery, state: FSMContext):
+async def process_language_choice(callback: types.CallbackQuery):
     lang_key = callback.data
     lang_info = LANGUAGES.get(lang_key, LANGUAGES["lang_en"])
 
-    # Сохраняем язык и переводим пользователя в состояние обучения
-    await state.update_data(
-        target_language=lang_info["prompt_lang"],
-        lang_code=lang_info["code"],
-        lang_name=lang_info["name"]
-    )
-    await state.set_state(TutorState.learning)
+    # Запоминаем язык за конкретным пользователем
+    user_languages[callback.from_user.id] = lang_info
 
     await callback.message.edit_text(
         f"Отлично! Начинаем изучать **{lang_info['name']}**! 🎉\n\n"
@@ -119,18 +105,12 @@ async def process_language_choice(callback: types.CallbackQuery, state: FSMConte
     )
     await callback.answer()
 
-# Обработка текстовых сообщений
 @dp.message(F.text)
-async def chat_with_tutor_text(message: types.Message, state: FSMContext):
-    data = await state.get_data()
+async def chat_with_tutor_text(message: types.Message):
+    user_id = message.from_user.id
+    lang_info = user_languages.get(user_id, {"prompt_lang": "English", "code": "en", "name": "Английский"})
     
-    # Если язык еще не выбран, просим выбрать
-    if not data.get("target_language"):
-        await message.answer("Пожалуйста, сначала отправьте /start и выберите язык из кнопок!")
-        return
-
-    target_language = data.get("target_language", "English")
-    prompt = get_tutor_prompt(target_language)
+    prompt = get_tutor_prompt(lang_info["prompt_lang"])
 
     try:
         response = ai_client.models.generate_content(
@@ -143,29 +123,23 @@ async def chat_with_tutor_text(message: types.Message, state: FSMContext):
         logging.error(f"Error calling Gemini: {e}")
         await message.answer("Произошла ошибка при обращении к ИИ. Попробуй еще раз чуть позже!")
 
-# Обработка голосовых сообщений
 @dp.message(F.voice)
-async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
-    data = await state.get_data()
+async def chat_with_tutor_voice(message: types.Message):
+    user_id = message.from_user.id
+    lang_info = user_languages.get(user_id, {"prompt_lang": "English", "code": "en", "name": "Английский"})
     
-    if not data.get("target_language"):
-        await message.answer("Пожалуйста, сначала отправьте /start и выберите язык из кнопок!")
-        return
-
-    target_language = data.get("target_language", "English")
-    lang_code = data.get("lang_code", "en")
+    target_language = lang_info["prompt_lang"]
+    lang_code = lang_info["code"]
     prompt = get_tutor_prompt(target_language)
 
     try:
         await message.bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
 
-        # 1. Скачиваем аудио
         file_id = message.voice.file_id
         file_info = await bot.get_file(file_id)
         file_bytes = await bot.download_file(file_info.file_path)
         audio_data = file_bytes.read()
 
-        # 2. Отправляем в Gemini
         response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -180,10 +154,8 @@ async def chat_with_tutor_voice(message: types.Message, state: FSMContext):
 
         reply_text = response.text
 
-        # 3. Отправляем текст
         await message.answer(reply_text)
 
-        # 4. Превращаем ответ в голосовое и отправляем
         voice_fp = await asyncio.to_thread(text_to_speech_bytes, reply_text, lang_code)
         voice_file = BufferedInputFile(voice_fp.read(), filename="voice.ogg")
         await message.answer_voice(voice=voice_file)
@@ -199,7 +171,6 @@ async def on_startup(bot: Bot):
     else:
         logging.warning("RENDER_EXTERNAL_URL is not set. Webhook might not work correctly.")
 
-# Эндпоинт для пинга от cron-job.org
 async def index(request):
     return web.Response(text="Multilingual Tutor Bot is running!")
 
