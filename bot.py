@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 from openai import AsyncOpenAI
 from aiohttp import web
 
-TELEGRAM_TOKEN = "8686547051:AAHfgvx3OPGXNCtpXX0JgHTae1lWF-A8Oz0"
+TELEGRAM_TOKEN = "8686547051:AAHly6DvabJc7ijTw9H2IWdL9FETxK5lKpA"
 OPENAI_API_KEY = "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"
 
 bot = Bot(token=TELEGRAM_TOKEN)
