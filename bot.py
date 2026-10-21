@@ -6,15 +6,24 @@ from io import BytesIO
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
 from google.genai import types as genai_types
 from gTTS import gTTS
 
-# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
+
+# Автоматический адрес вебхука от Render
+WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://oxford-way-bot.onrender.com")
+WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+WEB_SERVER_HOST = "0.0.0.0"
+WEB_SERVER_PORT = int(os.environ.get("PORT", 10000))
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -203,19 +212,29 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
-async def main():
-    print("Starting bot in polling mode with webhook reset...")
-    # Принудительно сбрасываем любые зависшие вебхуки и старые сеансы связи
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        logging.warning(f"Webhook reset warning: {e}")
+async def on_startup(app):
+    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+    logging.info(f"Webhook set to {WEBHOOK_URL}")
 
-    print("Polling started successfully...")
-    try:
-        await dp.start_polling(bot, handle_signals=False)
-    finally:
-        await bot.session.close()
+async def handle_health(request):
+    return web.Response(text="Bot is running!")
+
+def main():
+    app = web.Application()
+    
+    # Добавляем простой маршрут для проверки здоровья, чтобы Render видел открытый порт
+    app.router.add_get("/", handle_health)
+
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+
+    setup_application(app, dp, bot=bot)
+    app.on_startup.append(on_startup)
+
+    web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
