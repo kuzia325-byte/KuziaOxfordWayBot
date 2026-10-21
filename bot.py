@@ -7,12 +7,23 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
 from google.genai import types as genai_types
 from gTTS import gTTS
 
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
+
+# Настройки вебхука для Render
+# Укажи здесь точный URL твоего сервиса на Render (например, https://oxford-way.onrender.com)
+WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://oxford-way-bot.onrender.com")
+WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+# Порт и хост для локального запуска / Render
+WEB_SERVER_HOST = "0.0.0.0"
+WEB_SERVER_PORT = int(os.environ.get("PORT", 10000))
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -201,28 +212,29 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
-async def index(request):
-    return web.Response(text="Bot is running!")
+async def on_startup(bot: Bot):
+    # Устанавливаем вебхук при запуске приложения
+    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+    logging.info(f"Webhook set to {WEBHOOK_URL}")
 
-async def main():
+def main():
     logging.basicConfig(level=logging.INFO)
-    
-    print("Waiting for old instances to close...")
-    await asyncio.sleep(3)
-    
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    app = web.Application()
-    app.router.add_get("/", index)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"Web server started on port {port}")
 
-    print("Bot started polling...")
-    await dp.start_polling(bot)
+    app = web.Application()
+
+    # Регистрируем обработчик вебхуков от aiogram
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+
+    # Привязываем приложение к жизненному циклу бота
+    setup_application(app, dp, bot=bot)
+    dp.startup.register(on_startup)
+
+    # Запускаем веб-сервер, который ждет запросы от Render и Telegram
+    web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
