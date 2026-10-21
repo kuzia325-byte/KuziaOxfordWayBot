@@ -9,10 +9,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedIn
 from aiohttp import web
 from google import genai
 from google.genai import types as genai_types
-from gtts import gTTS
+from gTTS import gTTS
 
-TELEGRAM_TOKEN = "8686547051:AAFvnP8-V5kaFtKCP1ApXd3CNBz7v6Qu9mY"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
+GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -206,9 +206,12 @@ async def index(request):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
+    
+    print("Waiting for old instances to close...")
+    await asyncio.sleep(3)
+    
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # Запускаем фоновый веб-сервер для Render на порту 10000
     app = web.Application()
     app.router.add_get("/", index)
     runner = web.AppRunner(app)
@@ -218,7 +221,6 @@ async def main():
     await site.start()
     print(f"Web server started on port {port}")
 
-    # Запускаем опрос Telegram
     print("Bot started polling...")
     await dp.start_polling(bot)
 
