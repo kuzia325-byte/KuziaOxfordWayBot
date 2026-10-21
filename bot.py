@@ -15,13 +15,11 @@ from gTTS import gTTS
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
 
-# Настройки вебхука для Render
-# Укажи здесь точный URL твоего сервиса на Render (например, https://oxford-way.onrender.com)
+# URL твоего сервиса на Render (Render подставит его автоматически)
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://oxford-way-bot.onrender.com")
 WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Порт и хост для локального запуска / Render
 WEB_SERVER_HOST = "0.0.0.0"
 WEB_SERVER_PORT = int(os.environ.get("PORT", 10000))
 
@@ -213,27 +211,23 @@ async def chat_with_tutor_voice(message: types.Message):
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
 async def on_startup(bot: Bot):
-    # Устанавливаем вебхук при запуске приложения
     await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-    logging.info(f"Webhook set to {WEBHOOK_URL}")
+    logging.info(f"Webhook successfully set to {WEBHOOK_URL}")
 
 def main():
     logging.basicConfig(level=logging.INFO)
 
     app = web.Application()
 
-    # Регистрируем обработчик вебхуков от aiogram
     webhook_requests_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
     )
     webhook_requests_handler.register(app, path=WEBHOOK_PATH)
 
-    # Привязываем приложение к жизненному циклу бота
     setup_application(app, dp, bot=bot)
     dp.startup.register(on_startup)
 
-    # Запускаем веб-сервер, который ждет запросы от Render и Telegram
     web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
 
 if __name__ == "__main__":
