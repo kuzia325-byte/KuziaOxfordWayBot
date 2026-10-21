@@ -15,7 +15,7 @@ from gTTS import gTTS
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
 
-# URL твоего сервиса на Render (Render подставит его автоматически)
+# URL сервиса на Render (автоматически подставляется Render'ом)
 WEBHOOK_HOST = os.environ.get("RENDER_EXTERNAL_URL", "https://oxford-way-bot.onrender.com")
 WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -114,7 +114,7 @@ async def callback_simpler(callback: types.CallbackQuery):
     prompt = get_tutor_prompt(lang_info["prompt_lang"])
     try:
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents="Explain the previous rule or concept much simpler, using Russian explanations and easy examples.",
             config={"system_instruction": prompt}
         )
@@ -132,7 +132,7 @@ async def callback_translate(callback: types.CallbackQuery):
     prompt = get_tutor_prompt(lang_info["prompt_lang"])
     try:
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents="Translate your last message or explanation into Russian completely.",
             config={"system_instruction": prompt}
         )
@@ -166,7 +166,7 @@ async def chat_with_tutor_text(message: types.Message):
 
     try:
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=message.text,
             config={"system_instruction": prompt}
         )
@@ -191,7 +191,7 @@ async def chat_with_tutor_voice(message: types.Message):
         audio_data = file_bytes.read()
 
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=[
                 genai_types.Part.from_bytes(data=audio_data, mime_type="audio/ogg"),
                 f"Ответь пользователю как репетитор по языку ({target_language})."
