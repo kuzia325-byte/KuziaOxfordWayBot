@@ -6,30 +6,15 @@ from io import BytesIO
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
-from aiohttp import web
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from google import genai
 from google.genai import types as genai_types
 from gTTS import gTTS
 
-# Настройка логирования, чтобы видеть все ошибки в реальном времени
+# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = "8686547051:AAHgoLVxYHINS0M9rRFC53ZuLMJv5arDyxA"
 GEMINI_API_KEY = "AQ.Ab8RN6INUcQlTBVjGpgfSNEH2KfUKCGEwILRwnljhKdrNrXqlg"
-
-# Автоматическое определение хоста для Render
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
-if RENDER_URL:
-    WEBHOOK_HOST = RENDER_URL.strip()
-else:
-    WEBHOOK_HOST = "https://oxford-way-bot.onrender.com"
-
-WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
-
-WEB_SERVER_HOST = "0.0.0.0"
-WEB_SERVER_PORT = int(os.environ.get("PORT", 10000))
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
@@ -218,31 +203,19 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
-async def on_startup(bot: Bot):
+async def main():
+    print("Starting bot in polling mode with webhook reset...")
+    # Принудительно сбрасываем любые зависшие вебхуки и старые сеансы связи
     try:
-        await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-        logging.info(f"Webhook successfully set to {WEBHOOK_URL}")
+        await bot.delete_webhook(drop_pending_updates=True)
     except Exception as e:
-        logging.error(f"Failed to set webhook: {e}")
+        logging.warning(f"Webhook reset warning: {e}")
 
-def main():
-    app = web.Application()
-
-    webhook_requests_handler = SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-    )
-    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-
-    setup_application(app, dp, bot=bot)
-    dp.startup.register(on_startup)
-
-    logging.info(f"Starting web server on {WEB_SERVER_HOST}:{WEB_SERVER_PORT}")
-    web.run_app(app, host=WEB_SERVER_HOST, port=WEB_SERVER_PORT)
+    print("Polling started successfully...")
+    try:
+        await dp.start_polling(bot, handle_signals=False)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logging.critical(f"Critical error during startup: {e}")
-        raise
+    asyncio.run(main())
