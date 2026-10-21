@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedIn
 from google import genai
 from google.genai import types as genai_types
 from gTTS import gTTS
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 
@@ -202,11 +203,27 @@ async def chat_with_tutor_voice(message: types.Message):
         logging.error(f"Error handling voice message: {e}")
         await message.answer("Не удалось обработать голосовое сообщение. Попробуй еще раз!")
 
+async def handle(request):
+    return web.Response(text="Bot is running live on Render!")
+
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 async def main():
     try:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
         pass
+    
+    # Запускаем фоновый веб-сервер для проверки порта Render
+    asyncio.create_task(web_server())
+    # Запускаем поллинг бота
     await dp.start_polling(bot, handle_signals=False)
 
 if __name__ == "__main__":
